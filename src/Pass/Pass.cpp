@@ -1,4 +1,3 @@
-#include <iostream>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Verifier.h>
@@ -6,10 +5,9 @@
 #include <llvm/Passes/PassPlugin.h>
 
 #include <regex>
-#include <sstream>
 
-#include "Graphviz.hpp"
-#include "Util.hpp"
+#include "Pass/Graphviz.hpp"
+#include "Pass/Util.hpp"
 
 using namespace llvm;
 
@@ -33,18 +31,18 @@ std::string GetInstrumentNPassesOutputFilename() {
 
 uint64_t GetId(Value *value) { return reinterpret_cast<uint64_t>(value); }
 
-std::string ExtractBBName(BasicBlock &bb) {
+std::string ExtractBBName(BasicBlock &BB) {
   std::string name;
   raw_string_ostream ss{name};
-  bb.printAsOperand(ss);
+  BB.printAsOperand(ss);
 
   return name;
 }
 
-std::string ExtractIName(Instruction &i) {
+std::string ExtractIName(Instruction &I) {
   std::string name;
   raw_string_ostream ss{name};
-  i.print(ss, true);
+  I.print(ss, true);
 
   return name;
 }
@@ -55,7 +53,8 @@ bool IsInternal(Function &F) {
 }
 
 bool IsLogging(Function &F) {
-  return F.getName() == "PrintNPassesEdges" || F.getName() == "IncreaseNPasses" ||
+  return F.getName() == "PrintNPassesEdges" ||
+         F.getName() == "IncreaseNPasses" ||
          F.getName() == "PrepareIncreasePasses";
 }
 
@@ -65,7 +64,7 @@ struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
       return PreservedAnalyses::none();
     }
 
-    dot::GraphvizBuilder graphviz(GetControlFlowGraphOutstream(M.getName()));
+    dot::GraphvizBuilder graphviz(GetControlFlowGraphOutstream(M.getName()), false, false);
 
     CreateNodes(M, graphviz);
     CreateEdges(M, graphviz);
@@ -217,25 +216,27 @@ private:
     }
 
     builder.SetInsertPoint(&I);
-    Type* int64Ty = Type::getInt64Ty(Ctx);
+    Type *int64Ty = Type::getInt64Ty(Ctx);
     Value *from_node_id_value = ConstantInt::get(int64Ty, from_node_id);
-    Value* from_args[] = {from_node_id_value};
+    Value *from_args[] = {from_node_id_value};
 
     if (call) {
-      Value* to_node_id_value = ConstantInt::get(int64Ty, GetId(call->getCalledFunction()));
-      Value* to_args[] = {to_node_id_value};
+      Value *to_node_id_value =
+          ConstantInt::get(int64Ty, GetId(call->getCalledFunction()));
+      Value *to_args[] = {to_node_id_value};
 
-      builder.CreateCall(PrepareFunctionPrepareIncreasePasses(M, Ctx), from_args);
+      builder.CreateCall(PrepareFunctionPrepareIncreasePasses(M, Ctx),
+                         from_args);
       builder.CreateCall(PrepareFunctionIncreaseNPasses(M, Ctx), to_args);
 
       // handle after call-return res
-      auto* after_call = call->getNextNode();
+      auto *after_call = call->getNextNode();
       assert(after_call);
       builder.SetInsertPoint(after_call);
       builder.CreateCall(PrepareFunctionIncreaseNPasses(M, Ctx), from_args);
+
       return;
     }
-
 
     outs() << "Instrument instruction " << "\n";
     I.print(outs(), true);
@@ -280,7 +281,7 @@ private:
 struct DefUseBuilderPass : public PassInfoMixin<DefUseBuilderPass> {
 
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
-    dot::GraphvizBuilder graphviz(GetDefUseGraphOutstream());
+    dot::GraphvizBuilder graphviz(GetDefUseGraphOutstream(), false, false);
 
     return PreservedAnalyses::all();
   }

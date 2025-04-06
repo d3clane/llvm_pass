@@ -1,4 +1,5 @@
-#include "Graphviz.hpp"
+#include "Pass/Graphviz.hpp"
+
 #include <regex>
 #include <utility>
 
@@ -20,14 +21,22 @@ void GraphvizSubgraphBuilder::Start(uint64_t subgraph_id,
 
 GraphvizSubgraphBuilder::~GraphvizSubgraphBuilder() { out_ << "}" << "\n"; }
 
-GraphvizBuilder::GraphvizBuilder(std::ofstream &&output)
-    : out_(std::move(output)), nextNodeId_(0) {
+GraphvizBuilder::GraphvizBuilder(std::ofstream &&output, bool with_begin,
+                                 bool with_end)
+    : out_(std::move(output)), nextNodeId_(0), with_end_(with_end) {
+  if (!with_begin) {
+    return;
+  }
+
   out_ << "digraph G {" << "\n";
   out_ << "rankdir=TB;" << "\n";
 }
 
 GraphvizBuilder::~GraphvizBuilder() {
-  out_ << "}" << "\n";
+  if (with_end_) {
+    out_ << "}" << "\n";
+  }
+  
   out_.flush();
 }
 

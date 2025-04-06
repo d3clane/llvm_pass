@@ -40,7 +40,8 @@ public:
     Black,
   };
 
-  explicit GraphvizBuilder(std::ofstream &&output);
+  GraphvizBuilder(std::ofstream &&output, bool with_begin = true,
+                  bool with_end = true);
 
   // Movable
 
@@ -48,8 +49,8 @@ public:
   GraphvizBuilder &operator=(GraphvizBuilder &&);
 
   // Non-copyable
-  GraphvizBuilder(const GraphvizBuilder&) = delete;
-  GraphvizBuilder &operator=(const GraphvizBuilder&) = delete;
+  GraphvizBuilder(const GraphvizBuilder &) = delete;
+  GraphvizBuilder &operator=(const GraphvizBuilder &) = delete;
 
   ~GraphvizBuilder();
 
@@ -67,6 +68,8 @@ private:
 private:
   std::ofstream out_;
   int nextNodeId_;
+  
+  bool with_end_{true};
 };
 
 } // namespace dot
