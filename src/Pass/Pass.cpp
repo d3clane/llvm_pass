@@ -275,7 +275,7 @@ private:
 private:
   static constexpr auto kNormalFlowColor = dot::GraphvizBuilder::Color::Black;
   static constexpr auto kCallFlowColor = dot::GraphvizBuilder::Color::Blue;
-  static constexpr auto kTerminatorFlowColor = dot::GraphvizBuilder::Color::Red;
+  static constexpr auto kTerminatorFlowColor = dot::GraphvizBuilder::Color::Blue;
 };
 
 struct DefUseBuilderPass : public PassInfoMixin<DefUseBuilderPass> {

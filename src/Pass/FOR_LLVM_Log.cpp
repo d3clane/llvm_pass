@@ -34,9 +34,21 @@ public:
     assert(out_file_name);
     std::ofstream out{out_file_name};
 
+    uint64_t max_passes =
+        std::max_element(passes_.begin(), passes_.end(), [](auto &a, auto &b) {
+          return a.second < b.second;
+        })->second;
+
     for (const auto &[edge, count] : passes_) {
+      double ratio = (double)count / max_passes;
+
+      int red = static_cast<int>(std::min(255.0, 255.0 * ratio));
+      int green = static_cast<int>(std::min(255.0, 255.0 * (1 - ratio)));
+
       out << "node" << edge.first << " -> node" << edge.second << " [label=\""
-          << count << "\"];" << "\n";
+          << count << "\", color=\"#" << std::setfill('0') << std::setw(2)
+          << std::hex << red << std::setw(2) << std::hex << green << "00\"];"
+          << "\n" << std::dec;
     }
   }
 

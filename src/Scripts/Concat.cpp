@@ -66,6 +66,9 @@ void ProceedFile(std::string_view filename, std::string edges_file_content) {
 }
 
 void BuildGraph(std::string_view filename) {
+  std::system("rm -rf png");
+  std::system("mkdir png");
+
   std::string command = "dot -Tpng " + std::string(filename) + " -o " +
                         std::string("png/") + std::string(filename) + ".png";
   std::system(command.c_str());
