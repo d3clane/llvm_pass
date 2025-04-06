@@ -6,8 +6,8 @@
 extern "C" {
 
 // One-shot
-void StoreFrom(uint64_t from_node);
-void IncreaseNPasses(uint64_t to_node); // from have to be stored
+void PrepareIncreasePasses(uint64_t from_node);
+void IncreaseNPasses(uint64_t to_node); // from have to be prepared
 void PrintNPassesEdges(const char* out_file_name);
 
 }

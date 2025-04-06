@@ -15,7 +15,7 @@ public:
     return logger;
   }
 
-  void StoreFrom(uint64_t from_node) { 
+  void PrepareIncreasePasses(uint64_t from_node) {
     from_ = from_node;
     invalid = false;
   }
@@ -24,8 +24,8 @@ public:
     if (invalid) {
       return;
     }
-    
-    passes_[{from_, to_node}]++; 
+
+    passes_[{from_, to_node}]++;
     from_ = 0;
     invalid = true;
   }
@@ -54,8 +54,8 @@ private:
 
 extern "C" {
 
-void StoreFrom(uint64_t from_node) {
-  NPassesLogger::Create().StoreFrom(from_node);
+void PrepareIncreasePasses(uint64_t from_node) {
+  NPassesLogger::Create().PrepareIncreasePasses(from_node);
 }
 
 void IncreaseNPasses(uint64_t to_node) {

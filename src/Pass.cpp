@@ -26,6 +26,11 @@ std::ofstream GetControlFlowGraphOutstream(StringRef module_name) {
   return util::OpenFile(nullptr, filename.c_str());
 }
 
+std::string GetInstrumentNPassesOutputFilename() {
+  const char *filename = std::getenv("INSTRUMENT_N_PASSES");
+  return filename ? filename : "n_passes_edges";
+}
+
 uint64_t GetId(Value *value) { return reinterpret_cast<uint64_t>(value); }
 
 std::string ExtractBBName(BasicBlock &bb) {
@@ -50,7 +55,8 @@ bool IsInternal(Function &F) {
 }
 
 bool IsLogging(Function &F) {
-  return F.getName() == "PrintNPassesEdges" || F.getName() == "IncreaseNPasses";
+  return F.getName() == "PrintNPassesEdges" || F.getName() == "IncreaseNPasses" ||
+         F.getName() == "PrepareIncreasePasses";
 }
 
 struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
@@ -65,10 +71,13 @@ struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
     CreateEdges(M, graphviz);
     InstrumentWithLogger(M);
 
+    M.print(outs(), nullptr);
     return PreservedAnalyses::all();
   }
 
 private:
+  // Creating nodes
+
   void CreateNodes(Module &M, dot::GraphvizBuilder &graphviz) {
     for (auto &F : M) {
       if (IsInternal(F) || IsLogging(F)) {
@@ -89,18 +98,18 @@ private:
     }
   }
 
-  void ProceedInstructionFlow(Instruction &I, dot::GraphvizBuilder &graphviz) {
+  // Creating edges
+
+  void ProceedInstructionFlow(Instruction &I, BasicBlock &BB,
+                              dot::GraphvizBuilder &graphviz) {
     if (auto *call = dyn_cast<CallBase>(&I)) {
       Value *callee = call->getCalledOperand();
       assert(callee);
 
-      if (auto* function_callee = dyn_cast<Function>(callee)) {
-        if (IsInternal(*function_callee) || IsLogging(*function_callee)) {
-          return;
-        }
+      auto *function_callee = dyn_cast<Function>(callee);
+      if (!IsInternal(*function_callee) && !IsLogging(*function_callee)) {
+        graphviz.AddEdge(GetId(&I), GetId(callee), kCallFlowColor);
       }
-
-      graphviz.AddEdge(GetId(&I), GetId(callee), kCallFlowColor);
     }
 
     if (I.isTerminator()) {
@@ -114,6 +123,8 @@ private:
       }
     } else if (I.getNextNode()) {
       graphviz.AddEdge(GetId(&I), GetId(I.getNextNode()), kNormalFlowColor);
+    } else if (BB.getNextNode()) {
+      graphviz.AddEdge(GetId(&I), GetId(BB.getNextNode()), kNormalFlowColor);
     }
   }
 
@@ -129,79 +140,132 @@ private:
         graphviz.AddEdge(GetId(&BB), GetId(&BB.front()), kNormalFlowColor);
 
         for (auto &I : BB) {
-          ProceedInstructionFlow(I, graphviz);
+          ProceedInstructionFlow(I, BB, graphviz);
         }
       }
     }
   }
 
+  // Instrumenting
+
+  FunctionCallee PrepareFunctionIncreaseNPasses(Module &M, LLVMContext &Ctx) {
+    Type *retType = Type::getVoidTy(Ctx);
+    Type *int64Ty = Type::getInt64Ty(Ctx);
+
+    FunctionType *funcIncreaseNPassesType =
+        FunctionType::get(retType, {int64Ty}, false);
+
+    return M.getOrInsertFunction("IncreaseNPasses", funcIncreaseNPassesType);
+  }
+
+  FunctionCallee PrepareFunctionPrepareIncreasePasses(Module &M,
+                                                      LLVMContext &Ctx) {
+    Type *retType = Type::getVoidTy(Ctx);
+    Type *int64Ty = Type::getInt64Ty(Ctx);
+
+    FunctionType *funcPrepareIncreasePassesType =
+        FunctionType::get(retType, {int64Ty}, false);
+    return M.getOrInsertFunction("PrepareIncreasePasses",
+                                 funcPrepareIncreasePassesType);
+  }
+
+  void InstrumentMain(Function &F, IRBuilder<> &builder, LLVMContext &Ctx,
+                      Module &M) {
+    Type *retType = Type::getVoidTy(Ctx);
+    Type *ptrType = PointerType::get(Ctx, 0);
+    Type *int64Ty = Type::getInt64Ty(Ctx);
+
+    assert(F.getName() == "main");
+
+    FunctionType *printNPassesEdgesType =
+        FunctionType::get(retType, {ptrType}, false);
+    FunctionCallee printNPassesEdges =
+        M.getOrInsertFunction("PrintNPassesEdges", printNPassesEdgesType);
+
+    builder.SetInsertPoint(&F.back().back());
+    Value *funcName =
+        builder.CreateGlobalString(GetInstrumentNPassesOutputFilename());
+    Value *args[] = {funcName};
+    builder.CreateCall(printNPassesEdges, args);
+  }
+
+  void InstrumentBasicBlock(BasicBlock &BB, uint64_t to_node_id,
+                            IRBuilder<> &builder, Module &M, LLVMContext &Ctx) {
+    Instruction *insert_point = &*BB.getFirstNonPHIOrDbgOrLifetime();
+    if (isa<LandingPadInst>(insert_point)) {
+      return;
+    }
+
+    Type *int64Ty = Type::getInt64Ty(Ctx);
+
+    builder.SetInsertPoint(insert_point);
+    Value *to_node_value_id = ConstantInt::get(int64Ty, to_node_id);
+    Value *args[] = {to_node_value_id};
+    builder.CreateCall(PrepareFunctionIncreaseNPasses(M, Ctx), args);
+  }
+
+  void InstrumentInstruction(Instruction &I, uint64_t from_node_id,
+                             IRBuilder<> &builder, Module &M,
+                             LLVMContext &Ctx) {
+    auto *call = dyn_cast<CallBase>(&I);
+    if (!I.isTerminator() && !call) {
+      return;
+    }
+
+    if (call && IsLogging(*call->getCalledFunction())) {
+      return;
+    }
+
+    builder.SetInsertPoint(&I);
+    Type* int64Ty = Type::getInt64Ty(Ctx);
+    Value *from_node_id_value = ConstantInt::get(int64Ty, from_node_id);
+    Value* from_args[] = {from_node_id_value};
+
+    if (call) {
+      Value* to_node_id_value = ConstantInt::get(int64Ty, GetId(call->getCalledFunction()));
+      Value* to_args[] = {to_node_id_value};
+
+      builder.CreateCall(PrepareFunctionPrepareIncreasePasses(M, Ctx), from_args);
+      builder.CreateCall(PrepareFunctionIncreaseNPasses(M, Ctx), to_args);
+
+      // handle after call-return res
+      auto* after_call = call->getNextNode();
+      assert(after_call);
+      builder.SetInsertPoint(after_call);
+      builder.CreateCall(PrepareFunctionIncreaseNPasses(M, Ctx), from_args);
+      return;
+    }
+
+
+    outs() << "Instrument instruction " << "\n";
+    I.print(outs(), true);
+    outs() << "\n";
+
+    builder.SetInsertPoint(&I);
+    builder.CreateCall(PrepareFunctionPrepareIncreasePasses(M, Ctx), from_args);
+  }
+
   void InstrumentWithLogger(Module &M) {
+    LLVMContext &Ctx = M.getContext();
+    IRBuilder<> builder(Ctx);
+
     for (auto &F : M) {
       if (F.isDeclaration() || IsInternal(F)) {
         continue;
       }
-      // TODO: Why do I need to create it inside of an F? What is F.getContext()
-      LLVMContext &Ctx = F.getContext();
-      IRBuilder<> builder(Ctx);
-      Type *retType = Type::getVoidTy(Ctx);
-      Type *ptrType = PointerType::get(Ctx, 0);
-      Type *int64Ty = Type::getInt64Ty(Ctx);
 
       if (F.getName() == "main") {
-
-        FunctionType *printNPassesEdgesType =
-            FunctionType::get(retType, {ptrType}, false);
-        FunctionCallee printNPassesEdges =
-            M.getOrInsertFunction("PrintNPassesEdges", printNPassesEdgesType);
-
-        builder.SetInsertPoint(&F.back().back());
-        // TODO: getenv
-        Value *funcName = builder.CreateGlobalString("NPassesEdges.to");
-        Value *args[] = {funcName};
-        builder.CreateCall(printNPassesEdges, args);
+        InstrumentMain(F, builder, Ctx, M);
       }
 
       if (IsLogging(F)) {
         continue;
       }
 
-      FunctionType *funcIncreaseNPassesType =
-          FunctionType::get(retType, {int64Ty}, false);
-      FunctionCallee funcIncreaseNPasses =
-          M.getOrInsertFunction("IncreaseNPasses", funcIncreaseNPassesType);
-
-      FunctionType *funcStoreFromType =
-          FunctionType::get(retType, {int64Ty}, false);
-      FunctionCallee funcStoreFrom =
-          M.getOrInsertFunction("StoreFrom", funcStoreFromType);
-
-      for (auto &&BB : F) {
+      for (auto &BB : F) {
+        InstrumentBasicBlock(BB, GetId(&BB), builder, M, Ctx);
         for (auto &I : BB) {
-          if (I.isTerminator()) {
-            builder.SetInsertPoint(&I);
-            Value *from_node_id = ConstantInt::get(int64Ty, GetId(&I));
-            Value *args[] = {from_node_id};
-            builder.CreateCall(funcStoreFrom, args);
-
-            for (ssize_t successor_id = 0; successor_id < I.getNumSuccessors();
-                 successor_id++) {
-              BasicBlock *successor = I.getSuccessor(successor_id);
-              assert(successor);
-
-              Instruction* insert_point = &*successor->getFirstNonPHIOrDbgOrLifetime();
-              if (isa<LandingPadInst>(insert_point)) {
-                continue;
-              }
-              
-              builder.SetInsertPoint(insert_point);
-              Value *to_node_id = ConstantInt::get(int64Ty, GetId(successor));
-              Value *args[] = {to_node_id};
-              builder.CreateCall(funcIncreaseNPasses, args);
-              bool verif = verifyFunction(F, &outs());
-              outs() << "[VERIFICATION] " << (!verif ? "OK\n\n" : "FAIL\n\n");
-              outs() << "Created call\n";
-            }
-          }
+          InstrumentInstruction(I, GetId(&I), builder, M, Ctx);
         }
       }
     }
