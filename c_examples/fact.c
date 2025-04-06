@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
   }
   uint64_t arg = atoi(argv[1]);
   if (errno == 0) {
-    printf("Fact(%lu) = %lu\n", arg, fact(arg));
+    printf("Fact(%llu) = %llu\n", arg, fact(arg));
   } else {
     printf("Usage: 1 argument - factorial len\n");
     return 1;

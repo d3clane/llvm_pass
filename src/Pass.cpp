@@ -50,13 +50,15 @@ bool IsInternal(Function &F) {
 }
 
 bool IsLogging(Function &F) {
-  return F.getName() == "PrintNPassesEdges" ||
-         F.getName() == "IncreaseNPasses" ||
-         F.getName().find("NO_LLVM_INSTRUMENT") != std::string::npos;
+  return F.getName() == "PrintNPassesEdges" || F.getName() == "IncreaseNPasses";
 }
 
 struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
+    if (M.getName().find("FOR_LLVM") != std::string::npos) {
+      return PreservedAnalyses::none();
+    }
+
     dot::GraphvizBuilder graphviz(GetControlFlowGraphOutstream(M.getName()));
 
     CreateNodes(M, graphviz);
@@ -75,7 +77,6 @@ private:
 
       auto func_subgraph = graphviz.StartSubgraph(GetId(&F), F.getName());
       graphviz.AddNode(GetId(&F), F.getName());
-      outs() << "CReate nodes for func " << F.getName() << "\n";
       for (auto &BB : F) {
         auto bb_name = ExtractBBName(BB);
         auto bb_subgraph = graphviz.StartSubgraph(GetId(&BB), bb_name);
@@ -92,6 +93,13 @@ private:
     if (auto *call = dyn_cast<CallBase>(&I)) {
       Value *callee = call->getCalledOperand();
       assert(callee);
+
+      if (auto* function_callee = dyn_cast<Function>(callee)) {
+        if (IsInternal(*function_callee) || IsLogging(*function_callee)) {
+          return;
+        }
+      }
+
       graphviz.AddEdge(GetId(&I), GetId(callee), kCallFlowColor);
     }
 
@@ -115,7 +123,6 @@ private:
         continue;
       }
 
-      outs() << "Create edges for func " << F.getName() << "\n";
       graphviz.AddEdge(GetId(&F), GetId(&F.front()), kNormalFlowColor);
 
       for (auto &BB : F) {
@@ -133,9 +140,7 @@ private:
       if (F.isDeclaration() || IsInternal(F)) {
         continue;
       }
-      outs() << "In " << F.getName() << "\n";
-      // TODO: move to function
-      // Why do I need to create it inside of an F? What is F.getContext()
+      // TODO: Why do I need to create it inside of an F? What is F.getContext()
       LLVMContext &Ctx = F.getContext();
       IRBuilder<> builder(Ctx);
       Type *retType = Type::getVoidTy(Ctx);
@@ -143,55 +148,62 @@ private:
       Type *int64Ty = Type::getInt64Ty(Ctx);
 
       if (F.getName() == "main") {
-        outs() << "In main'\n";
 
-        // Prepare function
-        ArrayRef<Type *> printNPassesEdgesParamTypes = {ptrType};
         FunctionType *printNPassesEdgesType =
-            FunctionType::get(retType, printNPassesEdgesParamTypes, false);
+            FunctionType::get(retType, {ptrType}, false);
         FunctionCallee printNPassesEdges =
             M.getOrInsertFunction("PrintNPassesEdges", printNPassesEdgesType);
 
         builder.SetInsertPoint(&F.back().back());
         // TODO: getenv
-        Value *funcName = builder.CreateGlobalString("NPassesEdges.dot");
+        Value *funcName = builder.CreateGlobalString("NPassesEdges.to");
         Value *args[] = {funcName};
         builder.CreateCall(printNPassesEdges, args);
       }
-#if 0
-      // TODO: move to function
-      if (F.getName() == "IncreaseNPasses") {
+
+      if (IsLogging(F)) {
         continue;
       }
 
-      // Prepare funcStartLogger function
-      ArrayRef<Type *> funcIncreaseNPassesParamTypes = {int64Ty, int64Ty};
       FunctionType *funcIncreaseNPassesType =
-          FunctionType::get(retType, funcIncreaseNPassesParamTypes, false);
+          FunctionType::get(retType, {int64Ty}, false);
       FunctionCallee funcIncreaseNPasses =
           M.getOrInsertFunction("IncreaseNPasses", funcIncreaseNPassesType);
+
+      FunctionType *funcStoreFromType =
+          FunctionType::get(retType, {int64Ty}, false);
+      FunctionCallee funcStoreFrom =
+          M.getOrInsertFunction("StoreFrom", funcStoreFromType);
 
       for (auto &&BB : F) {
         for (auto &I : BB) {
           if (I.isTerminator()) {
-#if 0
+            builder.SetInsertPoint(&I);
+            Value *from_node_id = ConstantInt::get(int64Ty, GetId(&I));
+            Value *args[] = {from_node_id};
+            builder.CreateCall(funcStoreFrom, args);
+
             for (ssize_t successor_id = 0; successor_id < I.getNumSuccessors();
                  successor_id++) {
               BasicBlock *successor = I.getSuccessor(successor_id);
               assert(successor);
 
-              builder.SetInsertPoint(&successor->front());
-              Value *from_node_id = ConstantInt::get(int64Ty, GetId(&I));
+              Instruction* insert_point = &*successor->getFirstNonPHIOrDbgOrLifetime();
+              if (isa<LandingPadInst>(insert_point)) {
+                continue;
+              }
+              
+              builder.SetInsertPoint(insert_point);
               Value *to_node_id = ConstantInt::get(int64Ty, GetId(successor));
-              Value *args[] = {from_node_id, to_node_id};
+              Value *args[] = {to_node_id};
               builder.CreateCall(funcIncreaseNPasses, args);
+              bool verif = verifyFunction(F, &outs());
+              outs() << "[VERIFICATION] " << (!verif ? "OK\n\n" : "FAIL\n\n");
+              outs() << "Created call\n";
             }
-#endif
           }
         }
       }
-
-#endif
     }
   }
 

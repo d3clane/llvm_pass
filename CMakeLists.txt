@@ -31,8 +31,8 @@ target_include_directories(Pass PRIVATE ${LLVM_INCLUDE_DIRS})
 
 add_custom_command(
     OUTPUT a.out
-    COMMAND clang++ -fpass-plugin=$<TARGET_FILE:Pass> ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/hello.c ${CMAKE_CURRENT_SOURCE_DIR}/src/Log.cpp -I${CMAKE_CURRENT_SOURCE_DIR}/include -O2 -o a.out
-    DEPENDS Pass 
+    COMMAND clang++ -fpass-plugin=$<TARGET_FILE:Pass> ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/fact.c ${CMAKE_CURRENT_SOURCE_DIR}/src/FOR_LLVM_Log.cpp -I${CMAKE_CURRENT_SOURCE_DIR}/include -O0 -o a.out
+    DEPENDS Pass ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/fact.c ${CMAKE_CURRENT_SOURCE_DIR}/src/FOR_LLVM_Log.cpp
     COMMENT 
     VERBATIM
 )
