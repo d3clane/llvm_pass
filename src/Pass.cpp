@@ -5,6 +5,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/PassPlugin.h>
 
+#include <regex>
 #include <sstream>
 
 #include "Graphviz.hpp"
@@ -18,8 +19,11 @@ std::ofstream GetDefUseGraphOutstream() {
   return util::OpenFile("GRAPHVIZ_DEF_USE", "def_use.dot");
 }
 
-std::ofstream GetControlFlowGraphOutstream() {
-  return util::OpenFile("GRAPHVIZ_CONTROL_FLOW", "control_flow.dot");
+std::ofstream GetControlFlowGraphOutstream(StringRef module_name) {
+  auto filename =
+      "control_flow_" +
+      std::regex_replace(module_name.str(), std::regex(R"(/)"), "_") + ".dot";
+  return util::OpenFile(nullptr, filename.c_str());
 }
 
 uint64_t GetId(Value *value) { return reinterpret_cast<uint64_t>(value); }
@@ -40,14 +44,24 @@ std::string ExtractIName(Instruction &i) {
   return name;
 }
 
-struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
+bool IsInternal(Function &F) {
+  return F.isIntrinsic() || F.getName().starts_with("__") ||
+         F.getName().starts_with("_ZSt") || F.getName().starts_with("_ZNSt");
+}
 
+bool IsLogging(Function &F) {
+  return F.getName() == "PrintNPassesEdges" ||
+         F.getName() == "IncreaseNPasses" ||
+         F.getName().find("NO_LLVM_INSTRUMENT") != std::string::npos;
+}
+
+struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
-    dot::GraphvizBuilder graphviz(GetControlFlowGraphOutstream());
+    dot::GraphvizBuilder graphviz(GetControlFlowGraphOutstream(M.getName()));
 
     CreateNodes(M, graphviz);
     CreateEdges(M, graphviz);
-    //InstrumentWithLogger(M);
+    InstrumentWithLogger(M);
 
     return PreservedAnalyses::all();
   }
@@ -55,9 +69,13 @@ struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
 private:
   void CreateNodes(Module &M, dot::GraphvizBuilder &graphviz) {
     for (auto &F : M) {
+      if (IsInternal(F) || IsLogging(F)) {
+        continue;
+      }
+
       auto func_subgraph = graphviz.StartSubgraph(GetId(&F), F.getName());
       graphviz.AddNode(GetId(&F), F.getName());
-
+      outs() << "CReate nodes for func " << F.getName() << "\n";
       for (auto &BB : F) {
         auto bb_name = ExtractBBName(BB);
         auto bb_subgraph = graphviz.StartSubgraph(GetId(&BB), bb_name);
@@ -93,10 +111,11 @@ private:
 
   void CreateEdges(Module &M, dot::GraphvizBuilder &graphviz) {
     for (auto &F : M) {
-      if (F.isDeclaration()) {
+      if (F.isDeclaration() || IsInternal(F) || IsLogging(F)) {
         continue;
       }
 
+      outs() << "Create edges for func " << F.getName() << "\n";
       graphviz.AddEdge(GetId(&F), GetId(&F.front()), kNormalFlowColor);
 
       for (auto &BB : F) {
@@ -109,20 +128,41 @@ private:
     }
   }
 
-  #if 0
   void InstrumentWithLogger(Module &M) {
     for (auto &F : M) {
+      if (F.isDeclaration() || IsInternal(F)) {
+        continue;
+      }
+      outs() << "In " << F.getName() << "\n";
+      // TODO: move to function
+      // Why do I need to create it inside of an F? What is F.getContext()
+      LLVMContext &Ctx = F.getContext();
+      IRBuilder<> builder(Ctx);
+      Type *retType = Type::getVoidTy(Ctx);
+      Type *ptrType = PointerType::get(Ctx, 0);
+      Type *int64Ty = Type::getInt64Ty(Ctx);
+
+      if (F.getName() == "main") {
+        outs() << "In main'\n";
+
+        // Prepare function
+        ArrayRef<Type *> printNPassesEdgesParamTypes = {ptrType};
+        FunctionType *printNPassesEdgesType =
+            FunctionType::get(retType, printNPassesEdgesParamTypes, false);
+        FunctionCallee printNPassesEdges =
+            M.getOrInsertFunction("PrintNPassesEdges", printNPassesEdgesType);
+
+        builder.SetInsertPoint(&F.back().back());
+        // TODO: getenv
+        Value *funcName = builder.CreateGlobalString("NPassesEdges.dot");
+        Value *args[] = {funcName};
+        builder.CreateCall(printNPassesEdges, args);
+      }
+#if 0
       // TODO: move to function
       if (F.getName() == "IncreaseNPasses") {
         continue;
       }
-
-      // TODO: move to function
-      // Why do I need to create it inside of an F? What is F.getContext()?
-      LLVMContext &Ctx = F.getContext();
-      IRBuilder<> builder(Ctx);
-      Type *retType = Type::getVoidTy(Ctx);
-      Type *int64Ty = Type::getInt64Ty(Ctx);
 
       // Prepare funcStartLogger function
       ArrayRef<Type *> funcIncreaseNPassesParamTypes = {int64Ty, int64Ty};
@@ -134,6 +174,7 @@ private:
       for (auto &&BB : F) {
         for (auto &I : BB) {
           if (I.isTerminator()) {
+#if 0
             for (ssize_t successor_id = 0; successor_id < I.getNumSuccessors();
                  successor_id++) {
               BasicBlock *successor = I.getSuccessor(successor_id);
@@ -145,12 +186,14 @@ private:
               Value *args[] = {from_node_id, to_node_id};
               builder.CreateCall(funcIncreaseNPasses, args);
             }
+#endif
           }
         }
       }
+
+#endif
     }
   }
-  #endif
 
 private:
   static constexpr auto kNormalFlowColor = dot::GraphvizBuilder::Color::Black;

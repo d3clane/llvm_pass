@@ -12,7 +12,7 @@ class GraphvizSubgraphBuilder {
   friend class GraphvizBuilder;
 
 public:
-  // Move-constructible
+  // Movable
   GraphvizSubgraphBuilder(GraphvizSubgraphBuilder &&) = default;
   GraphvizSubgraphBuilder &operator=(GraphvizSubgraphBuilder &&) = delete;
 
@@ -41,6 +41,16 @@ public:
   };
 
   explicit GraphvizBuilder(std::ofstream &&output);
+
+  // Movable
+
+  GraphvizBuilder(GraphvizBuilder &&);
+  GraphvizBuilder &operator=(GraphvizBuilder &&);
+
+  // Non-copyable
+  GraphvizBuilder(const GraphvizBuilder&) = delete;
+  GraphvizBuilder &operator=(const GraphvizBuilder&) = delete;
+
   ~GraphvizBuilder();
 
   [[nodiscard]]

@@ -31,7 +31,7 @@ target_include_directories(Pass PRIVATE ${LLVM_INCLUDE_DIRS})
 
 add_custom_command(
     OUTPUT a.out
-    COMMAND clang -fpass-plugin=$<TARGET_FILE:Pass> ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/hello.c -O2 -o a.out
+    COMMAND clang++ -fpass-plugin=$<TARGET_FILE:Pass> ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/hello.c ${CMAKE_CURRENT_SOURCE_DIR}/src/Log.cpp -I${CMAKE_CURRENT_SOURCE_DIR}/include -O2 -o a.out
     DEPENDS Pass 
     COMMENT 
     VERBATIM
@@ -42,22 +42,28 @@ add_custom_target(
     DEPENDS a.out
 )
 
-add_custom_command(
-    OUTPUT ${DEF_USE_OUTPUT}
-    COMMAND dot -Tpng ${DEF_USE_INPUT} -o ${DEF_USE_OUTPUT}
-    DEPENDS ${DEF_USE_INPUT}
-    COMMENT
-    VERBATIM
-)
+file(GLOB_RECURSE DOT_FILES "${CMAKE_CURRENT_BINARY_DIR}/*.dot")
 
-add_custom_command(
-    OUTPUT ${CONTROL_FLOW_OUTPUT}
-    COMMAND dot -Tpng ${CONTROL_FLOW_INPUT} -o ${CONTROL_FLOW_OUTPUT}
-    DEPENDS ${CONTROL_FLOW_INPUT}
-    COMMENT
-    VERBATIM
-)
+set(PNG_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/png")
+if(EXISTS "${PNG_OUTPUT_DIR}")
+    file(REMOVE_RECURSE "${PNG_OUTPUT_DIR}")
+endif()
+file(MAKE_DIRECTORY "${PNG_OUTPUT_DIR}")
 
-add_custom_target(gen_dot ALL
-    DEPENDS ${DEF_USE_OUTPUT} ${CONTROL_FLOW_OUTPUT}
-)
+set(PNG_FILES "")
+foreach(dot_file ${DOT_FILES})
+    get_filename_component(filename ${dot_file} NAME_WE)
+    set(png_file "${PNG_OUTPUT_DIR}/${filename}.png")
+
+    add_custom_command(
+        OUTPUT ${png_file}
+        COMMAND dot -Tpng ${dot_file} -o ${png_file}
+        DEPENDS ${dot_file}
+        COMMENT "Generating ${png_file} from ${dot_file}"
+        VERBATIM
+    )
+
+    list(APPEND PNG_FILES ${png_file})
+endforeach()
+
+add_custom_target(gen_pngs ALL DEPENDS ${PNG_FILES})
