@@ -142,6 +142,8 @@ And the result:
 
 <img src="ReadmeAssets/imgs/mem_flow.png" width="50%" />
 
+As we can see, all accesses to memory on heap are tracked and accesses to pointers to stack are not presented on graph because they don't interact with heap memory.
+
 Memory allocations graph is very useful. It could be used to
 1. Detect memory leaks - by instrumenting quit of the 'main' function with checking whether all tracked memory were freed.
 2. Detect use-after-free. For instance, now I instrument every usage of pointers, every free. Therefore, if free on particular memory occurred and no allocation of this memory address happened between free and usage - it indicates heap use after free. 
