@@ -63,7 +63,26 @@ private:
   bool invalid{true};
 };
 
-} // namespace
+class NodesUsageCounter {
+public:
+  // singleton
+  static NodesUsageCounter& Create() {
+    static NodesUsageCounter counter;
+    return counter;
+  }
+  
+  void AddUsage(uint64_t node) {
+    counter_[node]++;
+  }
+
+private:
+  NodesUsageCounter() = default;
+
+private:
+  std::map<uint64_t, uint64_t> counter_;
+};
+
+} // namespace anonymous
 
 extern "C" {
 
@@ -77,5 +96,10 @@ void IncreaseNPasses(uint64_t to_node) {
 
 void PrintNPassesEdges(const char *out_file_name) {
   NPassesLogger::Create().PrintNPassesEdges(out_file_name);
-};
+}
+
+void AddUsage(uint64_t node) {
+  NodesUsageCounter::Create().AddUsage(node);
+}
+
 }

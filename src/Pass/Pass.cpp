@@ -66,7 +66,8 @@ struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
       return PreservedAnalyses::none();
     }
 
-    dot::GraphvizBuilder graphviz(GetControlFlowGraphOutstream(M.getName()), false, false);
+    dot::GraphvizBuilder graphviz(GetControlFlowGraphOutstream(M.getName()),
+                                  false, false);
 
     CreateNodes(M, graphviz);
     CreateEdges(M, graphviz);
@@ -272,107 +273,101 @@ private:
 private:
   static constexpr auto kNormalFlowColor = dot::GraphvizBuilder::Color::Black;
   static constexpr auto kCallFlowColor = dot::GraphvizBuilder::Color::Blue;
-  static constexpr auto kTerminatorFlowColor = dot::GraphvizBuilder::Color::Blue;
+  static constexpr auto kTerminatorFlowColor =
+      dot::GraphvizBuilder::Color::Blue;
 };
 
 // Def-use graph
 
 struct DefUseBuilderPass : public PassInfoMixin<DefUseBuilderPass> {
-
+public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
+    if (M.getName().find("FOR_LLVM") != std::string::npos) {
+      return PreservedAnalyses::none();
+    }
+
     dot::GraphvizBuilder graphviz(GetDefUseGraphOutstream(), false, false);
 
-    return PreservedAnalyses::all();
-  }
-};
-
-#if 0
-struct DefUseBuilderPass : public PassInfoMixin<DefUseBuilderPass> {
-
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
-    dot::GraphvizBuilder graphviz(GetDefUseGraphOutstream());
-
-    for (auto &F : M) {
-      auto func_subgraph = graphviz.StartSubgraph(F.getName(), F.getName());
-      graphviz.AddNode(GetId(&F), F.getName());
-
-      for (auto &BB : F) {
-        // auto bb_subgraph = graphviz.StartSubgraph("BB");
-        graphviz.AddNode(GetId(&BB), "Basic Block");
-        for (auto &I : BB) {
-          std::string name;
-          raw_string_ostream ss{name};
-          I.print(ss, true);
-          graphviz.AddNode(GetId(&I), name);
-        }
-      }
-    }
-
-    for (auto &F : M) {
-      for (auto &U : F.uses()) {
-        User *user = U.getUser();
-        graphviz.AddEdge(GetId(&F), GetId(user),
-                         dot::GraphvizBuilder::Color::Green);
-      }
-
-      for (auto &BB : F) {
-        for (auto &U : BB.uses()) {
-          User *user = U.getUser();
-          graphviz.AddEdge(GetId(&BB), GetId(user),
-                           dot::GraphvizBuilder::Color::Green);
-        }
-        for (auto &I : BB) {
-          for (auto &U : I.uses()) {
-            User *user = U.getUser();
-            graphviz.AddEdge(GetId(&I), GetId(user),
-                             dot::GraphvizBuilder::Color::Green);
-          }
-        }
-      }
-    }
-#if 0
-        for (auto& F : M) {
-            auto subgraph = graphviz.StartSubgraph(F.getName());
-
-            outs() << "Begin args\n";
-            for (auto& arg : F.args()) {
-                outs() << "Arg with addr " << GetId(&arg) << "and name " << arg.getName() << "\n";
-                graphviz.AddNode(GetId(&arg), arg.getName());    
-                outs() << "\n";
-            }
-            outs() << "End args\n";
-
-            for (auto& BB : F) {
-                for (auto& I : BB) {
-                    std::string instruction_name;
-                    raw_string_ostream ss{instruction_name};
-                    I.print(ss, true);
-
-                    outs() << "Current instruction with addr " << GetId(&I) << "\n";
-                    I.print(outs(), true);
-                    outs() << "\n";
-                    graphviz.AddNode(GetId(&I), instruction_name);
-                    for (auto& U : I.operands()) {
-                        Value* value = U.get();
-
-                        if (!dyn_cast<Instruction>(value)) {
-                            continue;
-                        }
-                        outs() << "Current operand with addr " << GetId(value) << "\n";
-                        U->print(outs(), true);
-                        outs() << "\n";
-                        graphviz.AddEdge(GetId(U), GetId(&I), dot::GraphvizBuilder::Color::Red);
-                    }
-                }
-            }
-        }
-#endif
+    BuildStaticGraph(M, graphviz);
+    // InstrumentWithLogger(M);
 
     return PreservedAnalyses::all();
   }
-};
 
-#endif
+private:
+  // Build static graph
+
+  void AddNodeIfNoneExistent(Value &value, std::string_view name,
+                             dot::GraphvizBuilder &graphviz) {
+    uint64_t id = GetId(&value);
+    if (existent_nodes_.count(id)) {
+      return;
+    }
+
+    existent_nodes_.insert(id);
+
+    graphviz.AddNode(id, name);
+  }
+
+  uint64_t AddNewUniqueNode(std::string_view name,
+                            dot::GraphvizBuilder &graphviz) {
+    static uint64_t node_id = 0;
+    assert(existent_nodes_.count(node_id) == 0);
+
+    graphviz.AddNode(node_id, name);
+    return node_id++;
+  }
+
+  void ProceedInstructionFlow(Instruction &I, dot::GraphvizBuilder &graphviz) {
+    std::string name;
+    raw_string_ostream ss{name};
+
+    if (!I.operands().empty()) {
+      name.clear();
+      I.print(ss);
+      AddNodeIfNoneExistent(I, name, graphviz);
+    }
+
+    for (auto &U : I.operands()) {
+      name.clear();
+
+      Value *use = U.get();
+
+      if (dyn_cast<Constant>(use)) {
+        use->printAsOperand(ss);
+        uint64_t node_id = AddNewUniqueNode(name, graphviz);
+        graphviz.AddEdge(node_id, GetId(&I),
+                         dot::GraphvizBuilder::Color::Black);
+        continue;
+      }
+
+      if (dyn_cast<Instruction>(use)) {
+        use->print(ss);
+      } else {
+        use->printAsOperand(ss);
+      }
+      AddNodeIfNoneExistent(*use, name, graphviz);
+      graphviz.AddEdge(GetId(use), GetId(&I),
+                       dot::GraphvizBuilder::Color::Black);
+    }
+  }
+
+  void BuildStaticGraph(Module &M, dot::GraphvizBuilder &graphviz) {
+    for (auto &F : M) {
+      auto func_subgraph = graphviz.StartSubgraph(GetId(&F), F.getName());
+      for (auto &BB : F) {
+        auto bb_subgraph =
+            graphviz.StartSubgraph(GetId(&BB), ExtractBBName(BB));
+        for (auto &I : BB) {
+          ProceedInstructionFlow(I, graphviz);
+        }
+      }
+    }
+  }
+
+private:
+  std::set<uint64_t> existent_nodes_;
+};
 
 PassPluginLibraryInfo getPassPluginInfo() {
   const auto callback = [](PassBuilder &PB) {
