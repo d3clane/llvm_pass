@@ -13,6 +13,8 @@ using namespace llvm;
 
 namespace {
 
+// ------------------------------------------------------------------------------------------------
+
 std::ofstream GetDefUseGraphOutstream(StringRef module_name) {
   auto filename =
       "def_use_" +
@@ -83,6 +85,7 @@ bool IsLogging(Function &F) {
 
 bool IsLogging(Module &M) { return M.getName().contains("FOR_LLVM"); }
 
+// ------------------------------------------------------------------------------------------------
 // Control flow graph
 
 struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
@@ -302,6 +305,8 @@ private:
       dot::GraphvizBuilder::Color::Blue;
 };
 
+// ------------------------------------------------------------------------------------------------
+
 // Def-use graph
 
 struct DefUseBuilderPass : public PassInfoMixin<DefUseBuilderPass> {
@@ -474,6 +479,8 @@ private:
 
   static constexpr auto kDefUseColor = dot::GraphvizBuilder::Color::Black;
 };
+
+// ------------------------------------------------------------------------------------------------
 
 // Memory alloc pass
 
@@ -687,6 +694,8 @@ private:
     }
   }
 };
+
+// ------------------------------------------------------------------------------------------------
 
 PassPluginLibraryInfo getPassPluginInfo() {
   const auto callback = [](PassBuilder &PB) {
