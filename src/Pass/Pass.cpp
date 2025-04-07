@@ -13,20 +13,30 @@ using namespace llvm;
 
 namespace {
 
-std::ofstream GetDefUseGraphOutstream() {
-  return util::OpenFile("GRAPHVIZ_DEF_USE", "def_use.dot");
+std::ofstream GetDefUseGraphOutstream(StringRef module_name) {
+  auto filename =
+      "def_use_" +
+      std::regex_replace(module_name.str(), std::regex(R"(/)"), "_") + ".dot";
+
+  return util::OpenFile(nullptr, filename.c_str());
 }
 
 std::ofstream GetControlFlowGraphOutstream(StringRef module_name) {
   auto filename =
       "control_flow_" +
       std::regex_replace(module_name.str(), std::regex(R"(/)"), "_") + ".dot";
+
   return util::OpenFile(nullptr, filename.c_str());
 }
 
 std::string GetInstrumentNPassesOutputFilename() {
-  const char *filename = std::getenv("INSTRUMENT_N_PASSES");
+  const char *filename = std::getenv("N_PASSES_EDGES");
   return filename ? filename : "n_passes_edges";
+}
+
+std::string GetInstrumentNUsageOutputFilename() {
+  const char *filename = std::getenv("NODE_USAGE_COUNT");
+  return filename ? filename : "node_usage_count";
 }
 
 uint64_t GetId(Value *value) { return reinterpret_cast<uint64_t>(value); }
@@ -55,7 +65,7 @@ bool IsInternal(Function &F) {
 bool IsLogging(Function &F) {
   return F.getName() == "PrintNPassesEdges" ||
          F.getName() == "IncreaseNPasses" ||
-         F.getName() == "PrepareIncreasePasses";
+         F.getName() == "PrepareIncreasePasses" || F.getName() == "AddUsage";
 }
 
 // Control flow graph
@@ -150,36 +160,35 @@ private:
   // Instrumenting
 
   FunctionCallee PrepareFunctionIncreaseNPasses(Module &M, LLVMContext &Ctx) {
-    Type *retType = Type::getVoidTy(Ctx);
-    Type *int64Ty = Type::getInt64Ty(Ctx);
+    Type *ret_type = Type::getVoidTy(Ctx);
+    Type *int64_type = Type::getInt64Ty(Ctx);
 
     FunctionType *funcIncreaseNPassesType =
-        FunctionType::get(retType, {int64Ty}, false);
+        FunctionType::get(ret_type, {int64_type}, false);
 
     return M.getOrInsertFunction("IncreaseNPasses", funcIncreaseNPassesType);
   }
 
   FunctionCallee PrepareFunctionPrepareIncreasePasses(Module &M,
                                                       LLVMContext &Ctx) {
-    Type *retType = Type::getVoidTy(Ctx);
-    Type *int64Ty = Type::getInt64Ty(Ctx);
+    Type *ret_type = Type::getVoidTy(Ctx);
+    Type *int64_type = Type::getInt64Ty(Ctx);
 
     FunctionType *funcPrepareIncreasePassesType =
-        FunctionType::get(retType, {int64Ty}, false);
+        FunctionType::get(ret_type, {int64_type}, false);
     return M.getOrInsertFunction("PrepareIncreasePasses",
                                  funcPrepareIncreasePassesType);
   }
 
   void InstrumentMain(Function &F, IRBuilder<> &builder, LLVMContext &Ctx,
                       Module &M) {
-    Type *retType = Type::getVoidTy(Ctx);
-    Type *ptrType = PointerType::get(Ctx, 0);
-    Type *int64Ty = Type::getInt64Ty(Ctx);
+    Type *ret_type = Type::getVoidTy(Ctx);
+    Type *ptr_type = PointerType::get(Ctx, 0);
 
     assert(F.getName() == "main");
 
     FunctionType *printNPassesEdgesType =
-        FunctionType::get(retType, {ptrType}, false);
+        FunctionType::get(ret_type, {ptr_type}, false);
     FunctionCallee printNPassesEdges =
         M.getOrInsertFunction("PrintNPassesEdges", printNPassesEdgesType);
 
@@ -197,10 +206,10 @@ private:
       return;
     }
 
-    Type *int64Ty = Type::getInt64Ty(Ctx);
+    Type *int64_type = Type::getInt64Ty(Ctx);
 
     builder.SetInsertPoint(insert_point);
-    Value *to_node_value_id = ConstantInt::get(int64Ty, to_node_id);
+    Value *to_node_value_id = ConstantInt::get(int64_type, to_node_id);
     Value *args[] = {to_node_value_id};
     builder.CreateCall(PrepareFunctionIncreaseNPasses(M, Ctx), args);
   }
@@ -218,13 +227,13 @@ private:
     }
 
     builder.SetInsertPoint(&I);
-    Type *int64Ty = Type::getInt64Ty(Ctx);
-    Value *from_node_id_value = ConstantInt::get(int64Ty, from_node_id);
+    Type *int64_type = Type::getInt64Ty(Ctx);
+    Value *from_node_id_value = ConstantInt::get(int64_type, from_node_id);
     Value *from_args[] = {from_node_id_value};
 
     if (call) {
       Value *to_node_id_value =
-          ConstantInt::get(int64Ty, GetId(call->getCalledFunction()));
+          ConstantInt::get(int64_type, GetId(call->getCalledFunction()));
       Value *to_args[] = {to_node_id_value};
 
       builder.CreateCall(PrepareFunctionPrepareIncreasePasses(M, Ctx),
@@ -286,21 +295,25 @@ public:
       return PreservedAnalyses::none();
     }
 
-    dot::GraphvizBuilder graphviz(GetDefUseGraphOutstream(), false, false);
+    dot::GraphvizBuilder graphviz(GetDefUseGraphOutstream(M.getName()), false,
+                                  false);
 
     BuildStaticGraph(M, graphviz);
-    // InstrumentWithLogger(M);
+    InstrumentWithLogger(M);
 
     return PreservedAnalyses::all();
   }
 
 private:
   // Build static graph
+  bool Exists(uint64_t id) { return existent_nodes_.count(id); }
+
+  bool Exists(Value &value) { return Exists(GetId(&value)); }
 
   void AddNodeIfNoneExistent(Value &value, std::string_view name,
                              dot::GraphvizBuilder &graphviz) {
     uint64_t id = GetId(&value);
-    if (existent_nodes_.count(id)) {
+    if (Exists(id)) {
       return;
     }
 
@@ -360,6 +373,69 @@ private:
             graphviz.StartSubgraph(GetId(&BB), ExtractBBName(BB));
         for (auto &I : BB) {
           ProceedInstructionFlow(I, graphviz);
+        }
+      }
+    }
+  }
+
+  // Instrument graph
+
+  void InstrumentMain(Function &F, Module &M, LLVMContext &Ctx,
+                      IRBuilder<> &builder) {
+    Type *ret_type = Type::getVoidTy(Ctx);
+    Type *ptr_type = PointerType::get(Ctx, 0);
+
+    assert(F.getName() == "main");
+
+    FunctionType *printNUsagesType =
+        FunctionType::get(ret_type, {ptr_type}, false);
+    FunctionCallee printNUsages =
+        M.getOrInsertFunction("PrintUsages", printNUsagesType);
+
+    builder.SetInsertPoint(&F.back().back());
+    Value *funcName =
+        builder.CreateGlobalString(GetInstrumentNUsageOutputFilename());
+    Value *args[] = {funcName};
+    builder.CreateCall(printNUsages, args);
+  }
+
+  void InstrumentInstruction(Instruction &I, Module &M, LLVMContext &Ctx,
+                             IRBuilder<> &builder) {
+    if (!Exists(I)) {
+      return;
+    }
+
+    Type *ret_type = Type::getVoidTy(Ctx);
+    Type *int64_type = Type::getInt64Ty(Ctx);
+
+    FunctionType *funcAddUsageType =
+        FunctionType::get(ret_type, {int64_type}, false);
+    FunctionCallee funcAddUsage =
+        M.getOrInsertFunction("AddUsage", funcAddUsageType);
+
+    builder.SetInsertPoint(&I);
+    Value *node_id = ConstantInt::get(int64_type, GetId(&I));
+    Value *args[] = {node_id};
+
+    builder.CreateCall(funcAddUsage, args);
+  }
+
+  void InstrumentWithLogger(Module &M) {
+    LLVMContext &Ctx = M.getContext();
+    IRBuilder<> builder{Ctx};
+
+    for (auto &F : M) {
+      if (IsLogging(F) || IsInternal(F)) {
+        continue;
+      }
+
+      if (F.getName() == "main") {
+        InstrumentMain(F, M, Ctx, builder);
+      }
+
+      for (auto &&BB : F) {
+        for (auto &I : BB) {
+          InstrumentInstruction(I, M, Ctx, builder);
         }
       }
     }

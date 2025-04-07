@@ -38,6 +38,7 @@ public:
     Green,
     Blue,
     Black,
+    Gray,
   };
 
   GraphvizBuilder(std::ofstream &&output, bool with_begin = true,
@@ -59,7 +60,7 @@ public:
                                         std::string_view label);
 
   void AddNode(uint64_t node_id, std::string_view name,
-               Color color = Color::Black);
+               Color color = Color::Gray);
   void AddEdge(uint64_t from_node, uint64_t to_node, Color color);
 
 private:

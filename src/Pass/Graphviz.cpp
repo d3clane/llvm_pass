@@ -36,7 +36,7 @@ GraphvizBuilder::~GraphvizBuilder() {
   if (with_end_) {
     out_ << "}" << "\n";
   }
-  
+
   out_.flush();
 }
 
@@ -63,8 +63,9 @@ void GraphvizBuilder::AddNode(uint64_t node_id, std::string_view name,
   std::string copy{name.begin(), name.end()};
   copy = std::regex_replace(copy, std::regex(R"(")"), R"(\")");
 
-  out_ << "node" << node_id << " [label=\"" << copy << "\", color=\""
-       << ColorToString(color) << "\"];" << std::endl;
+  out_ << "node" << node_id << " [label=\"" << copy
+       << "\", style=filled, fillcolor=\"" << ColorToString(color) << "\"];"
+       << std::endl;
 }
 
 void GraphvizBuilder::AddEdge(uint64_t from_node, uint64_t to_node,
@@ -84,6 +85,8 @@ const char *GraphvizBuilder::ColorToString(Color color) {
     return "blue";
   case Color::Black:
     return "black";
+  case Color::Gray:
+    return "gray";
   default:
     std::terminate();
   }

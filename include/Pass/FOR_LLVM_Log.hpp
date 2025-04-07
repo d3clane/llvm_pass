@@ -11,6 +11,7 @@ void IncreaseNPasses(uint64_t to_node); // from have to be prepared
 void PrintNPassesEdges(const char* out_file_name);
 
 void AddUsage(uint64_t node);
+void PrintUsages(const char* out_file_name);
 
 }
 

@@ -8,7 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
-std::string readFile(std::string_view filename) {
+std::string ReadFile(std::string_view filename) {
   std::ifstream file(filename.data());
 
   if (!file) {
@@ -21,7 +21,7 @@ std::string readFile(std::string_view filename) {
 }
 
 void ProceedFile(std::string_view filename, std::string edges_file_content) {
-  std::string file_string = readFile(filename.data());
+  std::string file_string = ReadFile(filename.data());
 
   std::unordered_set<uint64_t> nodes;
   std::regex node_regex(R"(.*node(\d+).*)");
@@ -66,8 +66,7 @@ void ProceedFile(std::string_view filename, std::string edges_file_content) {
 }
 
 void BuildGraph(std::string_view filename) {
-  std::system("rm -rf png");
-  std::system("mkdir png");
+  std::system("mkdir -p png");
 
   std::string command = "dot -Tpng " + std::string(filename) + " -o " +
                         std::string("png/") + std::string(filename) + ".png";
@@ -83,7 +82,7 @@ int main(int argc, char *argv[]) {
   std::string edgeFilename = argv[1];
   std::string prefix = argv[2];
 
-  std::string edge_file_content = readFile(edgeFilename);
+  std::string edge_file_content = ReadFile(edgeFilename);
 
   for (const auto &entry :
        std::filesystem::directory_iterator(std::filesystem::current_path())) {

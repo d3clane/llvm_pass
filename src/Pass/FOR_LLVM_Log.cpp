@@ -4,8 +4,17 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <string>
 
 namespace {
+
+std::string InterpolateColor(double ratio) {
+  int red = static_cast<int>(255 * ratio);
+  int green = static_cast<int>(255 * (1.0 - ratio));
+  char buffer[8];
+  std::snprintf(buffer, sizeof(buffer), "#%02X%02X00", red, green);
+  return std::string(buffer);
+}
 
 class NPassesLogger {
 public:
@@ -47,9 +56,8 @@ public:
       int green = static_cast<int>(std::min(255.0, 255.0 * (1 - ratio)));
 
       out << "node" << edge.first << " -> node" << edge.second << " [label=\""
-          << count << "\", color=\"#" << std::setfill('0') << std::setw(2)
-          << std::hex << red << std::setw(2) << std::hex << green
-          << "00\", penwidth=" << std::dec << (1 + 4 * ratio) << "];" << "\n";
+          << count << "\", color=\"" << InterpolateColor(ratio)
+          << "\", penwidth=" << std::dec << (1 + 4 * ratio) << "];" << "\n";
     }
   }
 
@@ -66,13 +74,20 @@ private:
 class NodesUsageCounter {
 public:
   // singleton
-  static NodesUsageCounter& Create() {
+  static NodesUsageCounter &Create() {
     static NodesUsageCounter counter;
     return counter;
   }
-  
-  void AddUsage(uint64_t node) {
-    counter_[node]++;
+
+  void AddUsage(uint64_t node) { counter_[node]++; }
+
+  void PrintUsages(const char *out_file_name) {
+    assert(out_file_name);
+    std::ofstream out{out_file_name};
+
+    for (const auto &[node, counter] : counter_) {
+      out << "node" << node << " " << counter << "\n";
+    }
   }
 
 private:
@@ -82,7 +97,7 @@ private:
   std::map<uint64_t, uint64_t> counter_;
 };
 
-} // namespace anonymous
+} // namespace
 
 extern "C" {
 
@@ -98,8 +113,9 @@ void PrintNPassesEdges(const char *out_file_name) {
   NPassesLogger::Create().PrintNPassesEdges(out_file_name);
 }
 
-void AddUsage(uint64_t node) {
-  NodesUsageCounter::Create().AddUsage(node);
-}
+void AddUsage(uint64_t node) { NodesUsageCounter::Create().AddUsage(node); }
 
+void PrintUsages(const char *out_file_name) {
+  NodesUsageCounter::Create().PrintUsages(out_file_name);
+}
 }
