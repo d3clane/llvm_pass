@@ -29,13 +29,20 @@ target_link_libraries(Pass PRIVATE ${llvm_libs})
 
 target_include_directories(Pass PRIVATE ${LLVM_INCLUDE_DIRS})
 
-# TODO: add feature to add own files to instrument with pass
+if(DEFINED ENV{RUN_SOURCES})
+  set(RUN_SOURCES $ENV{RUN_SOURCES})
+else()
+  set(RUN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/c_examples/dynamic.c")
+endif()
 
 add_custom_command(
     OUTPUT a.out
-    COMMAND clang++ -fpass-plugin=$<TARGET_FILE:Pass> ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/dynamic.c ${CMAKE_CURRENT_SOURCE_DIR}/src/Pass/FOR_LLVM_Log.cpp -I${CMAKE_CURRENT_SOURCE_DIR}/include -O0 -o a.out
-    DEPENDS Pass ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/dynamic.c ${CMAKE_CURRENT_SOURCE_DIR}/src/Pass/FOR_LLVM_Log.cpp
-    COMMENT 
+    COMMAND clang++ -fpass-plugin=$<TARGET_FILE:Pass> 
+            ${RUN_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/src/Pass/FOR_LLVM_Log.cpp 
+            -I${CMAKE_CURRENT_SOURCE_DIR}/include -O0 -o a.out
+
+    DEPENDS Pass ${CMAKE_CURRENT_SOURCE_DIR}/src/Pass/FOR_LLVM_Log.cpp ${RUN_SOURCES}
+    COMMENT "Building a.out using sources from ${RUN_SOURCES}"
     VERBATIM
 )
 

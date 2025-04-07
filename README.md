@@ -19,11 +19,12 @@ If program consists of different translation units, graphs generated from differ
 
 ```
 git clone https://github.com/d3clane/llvm_pass.git
-mkdir build && cd build && cmake ..
+mkdir build && cd build
+RUN_SOURCES="../c_examples/fact.c" cmake ..
 make
 ```
 
-These commands generate the executable `a.out` that you can now run. After running it, dynamic information is collected and stored into files with names `n_passes_edges` for control flow graph and `node_usage_count` for def_use graph. In order to combine static graphs with dynamic info you should run:
+These commands generate the executable `a.out` that you can now run. In environmental variable "RUN_SOURCES" could be set any sources to compile with pass. After running it, dynamic information is collected and stored into files with names `n_passes_edges` for control flow graph and `node_usage_count` for def_use graph. In order to combine static graphs with dynamic info you should run:
 
 ```
 ./ConcatDU node_usage_count def_use out_file_name
