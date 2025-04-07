@@ -99,7 +99,7 @@ And one of the components of this graph:
 
 <img src="ReadmeAssets/imgs/control_flow_test1_dyn_part.png" width="50%" />
 
-And this image perfectly matches the previous def/use graph. These two representations are very convenient for using together.
+And this image perfectly matches the previous def/use graph. These two representations are very convenient when using together.
 
 ## Memory Alloc Use Pass
 
