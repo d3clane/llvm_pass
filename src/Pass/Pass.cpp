@@ -58,6 +58,8 @@ bool IsLogging(Function &F) {
          F.getName() == "PrepareIncreasePasses";
 }
 
+// Control flow graph
+
 struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
     if (M.getName().find("FOR_LLVM") != std::string::npos) {
@@ -70,7 +72,6 @@ struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
     CreateEdges(M, graphviz);
     InstrumentWithLogger(M);
 
-    M.print(outs(), nullptr);
     return PreservedAnalyses::all();
   }
 
@@ -238,10 +239,6 @@ private:
       return;
     }
 
-    outs() << "Instrument instruction " << "\n";
-    I.print(outs(), true);
-    outs() << "\n";
-
     builder.SetInsertPoint(&I);
     builder.CreateCall(PrepareFunctionPrepareIncreasePasses(M, Ctx), from_args);
   }
@@ -278,6 +275,8 @@ private:
   static constexpr auto kTerminatorFlowColor = dot::GraphvizBuilder::Color::Blue;
 };
 
+// Def-use graph
+
 struct DefUseBuilderPass : public PassInfoMixin<DefUseBuilderPass> {
 
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
@@ -294,7 +293,7 @@ struct DefUseBuilderPass : public PassInfoMixin<DefUseBuilderPass> {
     dot::GraphvizBuilder graphviz(GetDefUseGraphOutstream());
 
     for (auto &F : M) {
-      auto func_subraph = graphviz.StartSubgraph(F.getName(), F.getName());
+      auto func_subgraph = graphviz.StartSubgraph(F.getName(), F.getName());
       graphviz.AddNode(GetId(&F), F.getName());
 
       for (auto &BB : F) {

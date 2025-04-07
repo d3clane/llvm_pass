@@ -41,14 +41,15 @@ public:
 
     for (const auto &[edge, count] : passes_) {
       double ratio = (double)count / max_passes;
+      assert(ratio <= 1);
 
       int red = static_cast<int>(std::min(255.0, 255.0 * ratio));
       int green = static_cast<int>(std::min(255.0, 255.0 * (1 - ratio)));
 
       out << "node" << edge.first << " -> node" << edge.second << " [label=\""
           << count << "\", color=\"#" << std::setfill('0') << std::setw(2)
-          << std::hex << red << std::setw(2) << std::hex << green << "00\"];"
-          << "\n" << std::dec;
+          << std::hex << red << std::setw(2) << std::hex << green
+          << "00\", penwidth=" << std::dec << (1 + 4 * ratio) << "];" << "\n";
     }
   }
 
