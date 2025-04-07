@@ -41,6 +41,8 @@ If you'd like to see only static information, concatenate it with empty_file:
 
 Pngs will be generated and stored in build/png/.
 
+Further in Readme trivial examples are used to show how it all works. However, all this could  be run on more complex ones, but it is useless to insert this into readme because of overwhelming amount of nodes presented in these graphs. Using instructions from this section anyone could run it on desired code.
+
 ## Def Use Pass
 
 The def-use representation is a format in which nodes are functions, basic blocks, instructions or constants and edge from node1 to node2 is held if node2 uses node1 as an operand. Examples have been compiled without optimization, otherwise it would change significantly. Here's a simple one: 

@@ -71,6 +71,7 @@ bool IsLogging(Function &F) {
 // Control flow graph
 
 struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
+public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
     if (M.getName().find("FOR_LLVM") != std::string::npos) {
       return PreservedAnalyses::none();
@@ -460,6 +461,11 @@ private:
   std::set<uint64_t> existent_nodes_;
 };
 
+struct MemoryAllocPass : public PassInfoMixin<MemoryAllocPass> {
+public:
+
+private:
+};
 PassPluginLibraryInfo getPassPluginInfo() {
   const auto callback = [](PassBuilder &PB) {
     PB.registerPipelineStartEPCallback([=](ModulePassManager &MPM, auto) {
