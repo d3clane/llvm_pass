@@ -143,8 +143,8 @@ And the result:
 <img src="ReadmeAssets/imgs/mem_flow.png" width="50%" />
 
 Memory allocations graph is very useful. It could be used to
-1. Detect memory leaks - by instrumenting quit of the 'main' function with checking whether all tracked memory was freed.
-2. Detect use-after-free. For example, I instrument every usage of pointers, every free. Therefore, if free on particular memory occurred, no allocation of this memory again occurred in-between and usage happened - it indicates heap use after free.
+1. Detect memory leaks - by instrumenting quit of the 'main' function with checking whether all tracked memory were freed.
+2. Detect use-after-free. For instance, now I instrument every usage of pointers, every free. Therefore, if free on particular memory occurred and no allocation of this memory address happened between free and usage - it indicates heap use after free. 
 3. Detect double-free, free of not allocated memory.
 
 Unfortunately, at the moment these features are not supported.
