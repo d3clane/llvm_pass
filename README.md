@@ -87,17 +87,17 @@ Now, for better understanding of flow of data and control, let's see how control
 
 In control flow graph nodes are still functions, basic blocks and instructions. An edge from node1 to node2 exists at compile time if after executing node1 the next executing instruction could be node2. For instance, edge from `call` to `called function` is drawn. Or, two edges from a `branch to label1 or label2` are created to `label1` and `label2`. Here is the representation graph for the same program:
 
-<img src="ReadmeAssets/imgs/control_flow_test1.png" height="50%" />
+<img src="ReadmeAssets/imgs/control_flow_test1.png" width="50%" />
 
 Blue edges mean "non-linear" change of control-flow (branches, calls, etc.).
 
 Now, moving on to dynamic information. It's impossible to say at compile-time, how many times will specific branch be taken, which branch is taken more often, or, for example, how many times function is called from this `call` instruction. The more frequent is particular jump, the thicker and "more red" becomes the edge. There are also numbers written on edges that indicate frequency of jump. Here's the result: 
 
-<img src="ReadmeAssets/imgs/control_flow_test1_dyn.png" height="50%" />
+<img src="ReadmeAssets/imgs/control_flow_test1_dyn.png" width="50%" />
 
 And one of the components of this graph:
 
-<img src="ReadmeAssets/imgs/control_flow_test1_dyn_part.png" height="50%" />
+<img src="ReadmeAssets/imgs/control_flow_test1_dyn_part.png" width="50%" />
 
 And this image perfectly matches the previous def/use graph. These two representations are very convenient for using together.
 
