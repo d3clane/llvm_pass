@@ -29,10 +29,12 @@ target_link_libraries(Pass PRIVATE ${llvm_libs})
 
 target_include_directories(Pass PRIVATE ${LLVM_INCLUDE_DIRS})
 
+# TODO: add feature to add own files to instrument with pass
+
 add_custom_command(
     OUTPUT a.out
-    COMMAND clang++ -fpass-plugin=$<TARGET_FILE:Pass> ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/fact.c ${CMAKE_CURRENT_SOURCE_DIR}/src/Pass/FOR_LLVM_Log.cpp -I${CMAKE_CURRENT_SOURCE_DIR}/include -O0 -o a.out
-    DEPENDS Pass ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/fact.c ${CMAKE_CURRENT_SOURCE_DIR}/src/Pass/FOR_LLVM_Log.cpp
+    COMMAND clang++ -fpass-plugin=$<TARGET_FILE:Pass> ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/test.c ${CMAKE_CURRENT_SOURCE_DIR}/src/Pass/FOR_LLVM_Log.cpp -I${CMAKE_CURRENT_SOURCE_DIR}/include -O0 -o a.out
+    DEPENDS Pass ${CMAKE_CURRENT_SOURCE_DIR}/c_examples/test.c ${CMAKE_CURRENT_SOURCE_DIR}/src/Pass/FOR_LLVM_Log.cpp
     COMMENT 
     VERBATIM
 )
@@ -41,8 +43,6 @@ add_custom_target(
     run_test ALL
     DEPENDS a.out
 )
-
-add_custom_target(gen_pngs ALL DEPENDS ${PNG_FILES})
 
 add_executable(ConcatCF src/Scripts/ConcatControlFlow.cpp)
 add_executable(ConcatDU src/Scripts/ConcatDefUse.cpp)

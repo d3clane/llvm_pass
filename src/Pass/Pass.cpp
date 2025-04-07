@@ -308,7 +308,7 @@ private:
   // Build static graph
   bool Exists(uint64_t id) { return existent_nodes_.count(id); }
 
-  bool Exists(Value &value) { return Exists(GetId(&value)); }
+  bool NodeExists(Value &value) { return Exists(GetId(&value)); }
 
   void AddNodeIfNoneExistent(Value &value, std::string_view name,
                              dot::GraphvizBuilder &graphviz) {
@@ -332,6 +332,14 @@ private:
   }
 
   void ProceedInstructionFlow(Instruction &I, dot::GraphvizBuilder &graphviz) {
+    auto* call = dyn_cast<CallBase>(&I);
+    if (call) {
+      auto* callee = dyn_cast<Function>(call->getCalledFunction());
+      if (callee && IsLogging(*callee)) {
+        return;
+      }
+    }
+
     std::string name;
     raw_string_ostream ss{name};
 
@@ -401,8 +409,14 @@ private:
 
   void InstrumentInstruction(Instruction &I, Module &M, LLVMContext &Ctx,
                              IRBuilder<> &builder) {
-    if (!Exists(I)) {
+    if (!NodeExists(I)) {
       return;
+    }
+    Instruction *insert_point = &I;
+
+    if (isa<PHINode>(I) || isa<LandingPadInst>(I)) {
+      insert_point = I.getNextNode();
+      assert(insert_point);
     }
 
     Type *ret_type = Type::getVoidTy(Ctx);
@@ -413,7 +427,7 @@ private:
     FunctionCallee funcAddUsage =
         M.getOrInsertFunction("AddUsage", funcAddUsageType);
 
-    builder.SetInsertPoint(&I);
+    builder.SetInsertPoint(insert_point);
     Value *node_id = ConstantInt::get(int64_type, GetId(&I));
     Value *args[] = {node_id};
 
@@ -436,6 +450,7 @@ private:
       for (auto &&BB : F) {
         for (auto &I : BB) {
           InstrumentInstruction(I, M, Ctx, builder);
+          bool verif = verifyFunction(F, &outs());
         }
       }
     }
@@ -447,9 +462,9 @@ private:
 
 PassPluginLibraryInfo getPassPluginInfo() {
   const auto callback = [](PassBuilder &PB) {
-    PB.registerOptimizerLastEPCallback([=](ModulePassManager &MPM, auto, auto) {
-      MPM.addPass(DefUseBuilderPass{});
+    PB.registerPipelineStartEPCallback([=](ModulePassManager &MPM, auto) {
       MPM.addPass(ControlFlowBuilderPass{});
+      MPM.addPass(DefUseBuilderPass{});
       return true;
     });
   };

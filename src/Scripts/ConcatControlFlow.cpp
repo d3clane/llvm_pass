@@ -20,7 +20,8 @@ std::string ReadFile(std::string_view filename) {
   return buffer.str();
 }
 
-void ProceedFile(std::string_view filename, std::string edges_file_content) {
+void ProceedFile(std::string_view filename, std::string edges_file_content,
+                 std::string out_file_name) {
   std::string file_string = ReadFile(filename.data());
 
   std::unordered_set<uint64_t> nodes;
@@ -61,28 +62,32 @@ void ProceedFile(std::string_view filename, std::string edges_file_content) {
 
   out_content << "}\n";
 
-  std::ofstream outFile(filename.data());
+  std::ofstream outFile(out_file_name);
   outFile << out_content.str();
 }
 
-void BuildGraph(std::string_view filename) {
+void BuildGraph(std::string_view out_file_name) {
   std::system("mkdir -p png");
 
-  std::string command = "dot -Tpng " + std::string(filename) + " -o " +
-                        std::string("png/") + std::string(filename) + ".png";
+  std::string command = "dot -Tpng " + std::string(out_file_name) + " -o " +
+                        std::string("png/") + std::string(out_file_name) +
+                        ".png";
+
   std::system(command.c_str());
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 3) {
-    std::cerr << "Usage: " << argv[0] << " <edge_file> <prefix>" << std::endl;
+  if (argc < 4) {
+    std::cerr << "Usage: " << argv[0] << " <edge_file> <prefix> <out_file_name>"
+              << std::endl;
     return EXIT_FAILURE;
   }
 
-  std::string edgeFilename = argv[1];
+  std::string edge_file_name = argv[1];
   std::string prefix = argv[2];
+  std::string out_file_name = argv[3];
 
-  std::string edge_file_content = ReadFile(edgeFilename);
+  std::string edge_file_content = ReadFile(edge_file_name);
 
   for (const auto &entry :
        std::filesystem::directory_iterator(std::filesystem::current_path())) {
@@ -91,8 +96,9 @@ int main(int argc, char *argv[]) {
 
     std::string filename = entry.path().filename().string();
     if (filename.starts_with(prefix)) {
-      ProceedFile(filename, edge_file_content);
-      BuildGraph(filename);
+      std::string out_dot = out_file_name + filename + ".dot";
+      ProceedFile(filename, edge_file_content, out_dot);
+      BuildGraph(out_dot);
     }
   }
 
