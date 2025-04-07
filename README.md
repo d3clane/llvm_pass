@@ -23,13 +23,12 @@ mkdir build && cd build && cmake ..
 make
 ```
 
-// TODO: memory usage graph
-
 These commands generate the executable `a.out` that you can now run. After running it, dynamic information is collected and stored into files with names `n_passes_edges` for control flow graph and `node_usage_count` for def_use graph. In order to combine static graphs with dynamic info you should run:
 
 ```
 ./ConcatDU node_usage_count def_use out_file_name
 ./ConcatCF n_passes_edges control_flow out_file_name
+./ConcatMF memory_usage memory_flow out_file_name
 ```
 
 If you'd like to see only static information, concatenate it with empty_file:
@@ -37,6 +36,7 @@ If you'd like to see only static information, concatenate it with empty_file:
 ```
 ./ConcatDU empty_file def_use out_file_name
 ./ConcatCF empty_file control_flow out_file_name
+./ConcatMF empty_file memory_flow out_file_name
 ```
 
 Pngs will be generated and stored in build/png/.
@@ -105,4 +105,45 @@ And this image perfectly matches the previous def/use graph. These two represent
 
 ## Memory Alloc Use Pass
 
-// TODO: 
+In this representation all edges are created only at runtime. Code is instrumented with tracking functions that track flow of memory - it's allocation, reallocation, deallocation and usage. Currently, it works only with C API - malloc, calloc, realloc, free.
+
+Here's the example:
+```C
+#include <cstdlib>
+#include <cstdio>
+
+void* MemAlloc(size_t size) {
+    void* mem = malloc(size);
+
+    ((int*)mem)[0] = 10;
+    ((int*)mem)[1] = 20;
+
+    return mem;
+}
+
+int main() {
+    void* mem = MemAlloc(100);
+
+    ((int*)mem)[4] = 40;
+
+    int value = 5;
+    int* fake_pointer = &value;
+
+    *fake_pointer = 10;
+
+    void* new_mem = realloc(mem, 150);
+    
+    free(new_mem);
+}
+```
+
+And the result:
+
+<img src="ReadmeAssets/imgs/mem_flow.png" width="50%" />
+
+Memory allocations graph is very useful. It could be used to
+1. Detect memory leaks - by instrumenting quit of the 'main' function with checking whether all tracked memory was freed.
+2. Detect use-after-free. For example, I instrument every usage of pointers, every free. Therefore, if free on particular memory occurred, no allocation of this memory again occurred in-between and usage happened - it indicates heap use after free.
+3. Detect double-free, free of not allocated memory.
+
+Unfortunately, at the moment these features are not supported.

@@ -29,6 +29,14 @@ std::ofstream GetControlFlowGraphOutstream(StringRef module_name) {
   return util::OpenFile(nullptr, filename.c_str());
 }
 
+std::ofstream GetMemoryFlowGraphOutstream(StringRef module_name) {
+  auto filename =
+      "memory_flow_" +
+      std::regex_replace(module_name.str(), std::regex(R"(/)"), "_") + ".dot";
+
+  return util::OpenFile(nullptr, filename.c_str());
+}
+
 std::string GetInstrumentNPassesOutputFilename() {
   const char *filename = std::getenv("N_PASSES_EDGES");
   return filename ? filename : "n_passes_edges";
@@ -37,6 +45,11 @@ std::string GetInstrumentNPassesOutputFilename() {
 std::string GetInstrumentNUsageOutputFilename() {
   const char *filename = std::getenv("NODE_USAGE_COUNT");
   return filename ? filename : "node_usage_count";
+}
+
+std::string GetInstrumentMemoryOutputFile() {
+  const char *filename = std::getenv("MEMORY_USAGE_PASS");
+  return filename ? filename : "memory_usage";
 }
 
 uint64_t GetId(Value *value) { return reinterpret_cast<uint64_t>(value); }
@@ -68,12 +81,14 @@ bool IsLogging(Function &F) {
          F.getName() == "PrepareIncreasePasses" || F.getName() == "AddUsage";
 }
 
+bool IsLogging(Module &M) { return M.getName().contains("FOR_LLVM"); }
+
 // Control flow graph
 
 struct ControlFlowBuilderPass : public PassInfoMixin<ControlFlowBuilderPass> {
 public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
-    if (M.getName().find("FOR_LLVM") != std::string::npos) {
+    if (IsLogging(M)) {
       return PreservedAnalyses::none();
     }
 
@@ -292,7 +307,7 @@ private:
 struct DefUseBuilderPass : public PassInfoMixin<DefUseBuilderPass> {
 public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
-    if (M.getName().find("FOR_LLVM") != std::string::npos) {
+    if (IsLogging(M)) {
       return PreservedAnalyses::none();
     }
 
@@ -333,9 +348,9 @@ private:
   }
 
   void ProceedInstructionFlow(Instruction &I, dot::GraphvizBuilder &graphviz) {
-    auto* call = dyn_cast<CallBase>(&I);
+    auto *call = dyn_cast<CallBase>(&I);
     if (call) {
-      auto* callee = dyn_cast<Function>(call->getCalledFunction());
+      auto *callee = dyn_cast<Function>(call->getCalledFunction());
       if (callee && IsLogging(*callee)) {
         return;
       }
@@ -358,8 +373,7 @@ private:
       if (dyn_cast<Constant>(use)) {
         use->printAsOperand(ss);
         uint64_t node_id = AddNewUniqueNode(name, graphviz);
-        graphviz.AddEdge(node_id, GetId(&I),
-                         dot::GraphvizBuilder::Color::Black);
+        graphviz.AddEdge(node_id, GetId(&I), kDefUseColor);
         continue;
       }
 
@@ -369,8 +383,7 @@ private:
         use->printAsOperand(ss);
       }
       AddNodeIfNoneExistent(*use, name, graphviz);
-      graphviz.AddEdge(GetId(use), GetId(&I),
-                       dot::GraphvizBuilder::Color::Black);
+      graphviz.AddEdge(GetId(use), GetId(&I), kDefUseColor);
     }
   }
 
@@ -451,7 +464,6 @@ private:
       for (auto &&BB : F) {
         for (auto &I : BB) {
           InstrumentInstruction(I, M, Ctx, builder);
-          bool verif = verifyFunction(F, &outs());
         }
       }
     }
@@ -459,18 +471,229 @@ private:
 
 private:
   std::set<uint64_t> existent_nodes_;
+
+  static constexpr auto kDefUseColor = dot::GraphvizBuilder::Color::Black;
 };
+
+// Memory alloc pass
 
 struct MemoryAllocPass : public PassInfoMixin<MemoryAllocPass> {
 public:
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
+    if (IsLogging(M)) {
+      return PreservedAnalyses::none();
+    }
+
+    dot::GraphvizBuilder graphviz{GetMemoryFlowGraphOutstream(M.getName()),
+                                  false, false};
+
+    CreateNodes(M, graphviz);
+
+    LLVMContext &Ctx = M.getContext();
+    IRBuilder<> builder{Ctx};
+
+    for (auto &F : M) {
+      if (F.getName() == "main") {
+        InstrumentMain(F, M, Ctx, builder);
+      }
+
+      for (auto &BB : F) {
+        for (auto &I : BB) {
+          InstrumentInstruction(I, M, Ctx, builder);
+        }
+      }
+    }
+
+    return PreservedAnalyses::all();
+  }
 
 private:
+  // Create nodes
+
+  void CreateNodes(Module &M, dot::GraphvizBuilder &graphviz) {
+    for (auto &F : M) {
+      if (IsInternal(F) || IsLogging(F)) {
+        continue;
+      }
+
+      auto func_subgraph = graphviz.StartSubgraph(GetId(&F), F.getName());
+      graphviz.AddNode(GetId(&F), F.getName());
+      for (auto &BB : F) {
+        auto bb_name = ExtractBBName(BB);
+        auto bb_subgraph = graphviz.StartSubgraph(GetId(&BB), bb_name);
+        graphviz.AddNode(GetId(&BB), bb_name);
+
+        for (auto &I : BB) {
+          graphviz.AddNode(GetId(&I), ExtractIName(I));
+        }
+      }
+    }
+  }
+
+  // Instrument memory
+  void InstrumentMain(Function &F, Module &M, LLVMContext &Ctx,
+                      IRBuilder<> &builder) {
+    Type *ret_type = Type::getVoidTy(Ctx);
+    Type *ptr_type = PointerType::get(Ctx, 0);
+
+    assert(F.getName() == "main");
+
+    FunctionType *printNPassesEdgesType =
+        FunctionType::get(ret_type, {ptr_type}, false);
+    FunctionCallee printNPassesEdges = M.getOrInsertFunction(
+        "PrintAllocatedMemoryInfo", printNPassesEdgesType);
+
+    builder.SetInsertPoint(&F.back().back());
+    Value *funcName =
+        builder.CreateGlobalString(GetInstrumentMemoryOutputFile());
+    Value *args[] = {funcName};
+    builder.CreateCall(printNPassesEdges, args);
+  }
+
+  Value *GetInstructionValueId(Instruction &I, LLVMContext &Ctx) {
+    Value *name_id = ConstantInt::get(Type::getInt64Ty(Ctx), GetId(&I));
+
+    return name_id;
+  }
+
+  bool HandleMemAllocCall(Instruction &I, Module &M, LLVMContext &Ctx,
+                          IRBuilder<> &builder) {
+    if (!isa<CallBase>(&I)) {
+      return false;
+    }
+
+    CallBase *call = cast<CallBase>(&I);
+    Function *calledFunc = call->getCalledFunction();
+
+    if (!calledFunc) {
+      return false;
+    }
+
+    StringRef funcName = calledFunc->getName();
+    if (funcName != "malloc" && funcName != "calloc") {
+      return false;
+    }
+
+    assert(call->getNextNode());
+    builder.SetInsertPoint(call->getNextNode());
+
+    Value *allocated_ptr = call;
+
+    FunctionCallee addMemFunc = M.getOrInsertFunction(
+        "AddDynamicallyAllocatedMemory", Type::getVoidTy(Ctx),
+        Type::getInt64Ty(Ctx), allocated_ptr->getType());
+
+    Value *name_id = GetInstructionValueId(I, Ctx);
+    builder.CreateCall(addMemFunc, {name_id, allocated_ptr});
+
+    return true;
+  }
+
+  bool HandleMemRealloc(Instruction &I, Module &M, LLVMContext &Ctx,
+                        IRBuilder<> &builder) {
+    if (!isa<CallBase>(&I)) {
+      return false;
+    }
+
+    CallBase *call = cast<CallBase>(&I);
+    Function *calledFunc = call->getCalledFunction();
+
+    if (!calledFunc) {
+      return false;
+    }
+
+    StringRef funcName = calledFunc->getName();
+    if (funcName != "realloc") {
+      return false;
+    }
+
+    assert(call->getNextNode());
+    builder.SetInsertPoint(call->getNextNode());
+
+    Value *deallocated_ptr = call->getArgOperand(0);
+    Value *allocated_ptr = call;
+
+    FunctionCallee deallocMemFunc = M.getOrInsertFunction(
+        "RemoveDynamicallAllocatedMemory", Type::getVoidTy(Ctx),
+        Type::getInt64Ty(Ctx), deallocated_ptr->getType());
+
+    FunctionCallee addMemFunc = M.getOrInsertFunction(
+        "AddDynamicallyAllocatedMemory", Type::getVoidTy(Ctx),
+        Type::getInt64Ty(Ctx), allocated_ptr->getType());
+
+    Value *name_id = GetInstructionValueId(I, Ctx);
+    builder.CreateCall(deallocMemFunc, {name_id, deallocated_ptr});
+    builder.CreateCall(addMemFunc, {name_id, allocated_ptr});
+
+    return true;
+  }
+
+  bool HandleMemFreeCall(Instruction &I, Module &M, LLVMContext &Ctx,
+                         IRBuilder<> &builder) {
+    if (!isa<CallBase>(&I)) {
+      return false;
+    }
+
+    CallBase *call = cast<CallBase>(&I);
+    Function *calledFunc = call->getCalledFunction();
+    if (!calledFunc) {
+      return false;
+    }
+
+    if (calledFunc->getName() != "free") {
+      return false;
+    }
+
+    builder.SetInsertPoint(call);
+    Value *freed_ptr = call->getArgOperand(0);
+
+    FunctionCallee removeMemFunc = M.getOrInsertFunction(
+        "RemoveDynamicallAllocatedMemory", Type::getVoidTy(Ctx),
+        Type::getInt64Ty(Ctx), freed_ptr->getType());
+
+    Value *name_id = GetInstructionValueId(I, Ctx);
+    builder.CreateCall(removeMemFunc, {name_id, freed_ptr});
+    return true;
+  }
+
+  void InstrumentInstruction(Instruction &I, Module &M, LLVMContext &Ctx,
+                             IRBuilder<> &builder) {
+    if (HandleMemAllocCall(I, M, Ctx, builder)) {
+      return;
+    }
+    if (HandleMemFreeCall(I, M, Ctx, builder)) {
+      return;
+    }
+    if (HandleMemRealloc(I, M, Ctx, builder)) {
+      return;
+    }
+
+    if (isa<CallBase>(I)) {
+      return;
+    }
+
+    for (ssize_t i = 0; i < I.getNumOperands(); ++i) {
+      Value *op = I.getOperand(i);
+      if (op->getType()->isPointerTy()) {
+        builder.SetInsertPoint(&I);
+
+        FunctionCallee logFunc = M.getOrInsertFunction(
+            "LogIfMemoryIsDynamicallyAllocated", Type::getVoidTy(Ctx),
+            Type::getInt64Ty(Ctx), op->getType());
+
+        Value *name_id = GetInstructionValueId(I, Ctx);
+        builder.CreateCall(logFunc, {name_id, op});
+      }
+    }
+  }
 };
+
 PassPluginLibraryInfo getPassPluginInfo() {
   const auto callback = [](PassBuilder &PB) {
     PB.registerPipelineStartEPCallback([=](ModulePassManager &MPM, auto) {
       MPM.addPass(ControlFlowBuilderPass{});
       MPM.addPass(DefUseBuilderPass{});
+      MPM.addPass(MemoryAllocPass{});
       return true;
     });
   };

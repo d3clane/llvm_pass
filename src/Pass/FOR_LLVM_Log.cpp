@@ -97,6 +97,69 @@ private:
   std::map<uint64_t, uint64_t> counter_;
 };
 
+class MemoryTracker {
+public:
+  // singleton
+  static MemoryTracker &Create() {
+    static MemoryTracker tracker;
+    return tracker;
+  }
+
+  void AddDynMemCreation(uint64_t node, void *mem) {
+    assert(last_node_.count(mem) == 0);
+
+    last_node_[mem] = node;
+    history_[mem].push_back(node);
+  }
+
+  void LogMemIfDyn(uint64_t node, void *mem) {
+    if (last_node_.count(mem) == 0) {
+      return;
+    }
+
+    last_node_[mem] = node;
+    history_[mem].push_back(node);
+  }
+
+  void RemoveDynMem(uint64_t node, void *mem) {
+    auto last_node_it = last_node_.find(mem);
+
+    assert(last_node_it != last_node_.end());
+
+    last_node_.erase(last_node_.find(mem));
+    history_[mem].push_back(node);
+    history_[mem].push_back(kHistoryNodesDelimeter);
+  }
+
+  void Print(const char *out_file_name) {
+    assert(out_file_name);
+
+    std::ofstream out{out_file_name};
+
+    for (auto &[mem, history] : history_) {
+      for (ssize_t i = 0; i < history.size() - 1; ++i) {
+        if (history[i + 1] == kHistoryNodesDelimeter) {
+          continue;
+        }
+
+        out << "node" << history[i] << " -> " << "node" << history[i + 1]
+            << " [color=\"black\"];\n";
+      }
+    }
+  }
+
+private:
+  MemoryTracker() = default;
+
+private:
+  std::map<void *, uint64_t> last_node_;
+  std::map<void *, std::vector<uint64_t>> history_;
+
+  // it is used to delimit usage of memory with the same address
+  // but allocated further in the program by another to call to allocator
+  static constexpr uint64_t kHistoryNodesDelimeter = static_cast<uint64_t>(-1);
+};
+
 } // namespace
 
 extern "C" {
@@ -117,5 +180,21 @@ void AddUsage(uint64_t node) { NodesUsageCounter::Create().AddUsage(node); }
 
 void PrintUsages(const char *out_file_name) {
   NodesUsageCounter::Create().PrintUsages(out_file_name);
+}
+
+void AddDynamicallyAllocatedMemory(uint64_t node, void *memory) {
+  MemoryTracker::Create().AddDynMemCreation(node, memory);
+}
+
+void LogIfMemoryIsDynamicallyAllocated(uint64_t node, void *memory) {
+  MemoryTracker::Create().LogMemIfDyn(node, memory);
+}
+
+void RemoveDynamicallAllocatedMemory(uint64_t node, void *memory) {
+  MemoryTracker::Create().RemoveDynMem(node, memory);
+}
+
+void PrintAllocatedMemoryInfo(const char *out_file_name) {
+  MemoryTracker::Create().Print(out_file_name);
 }
 }
